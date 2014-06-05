@@ -84,8 +84,8 @@ class GoogleSafeBrowsing
 				# TODO: delete chunks for current list
 				say("Don't report chunks: #{data}")
 			else
-				puts "I don't know how to handle this!"
-				puts line.inspect
+				say("I don't know how to handle this!")
+				say(line.inspect)
 			end
 		end
 
@@ -115,6 +115,41 @@ class GoogleSafeBrowsing
 			puts "data length: #{data.length}, data: ========================================"
 			puts data.unpack("H*")
 			puts "================================================================================"
+
+			if(type == 'a')
+				if(chunk_len == 0)
+				end
+			elsif(type == 's')
+				if(chunk_len == 0)
+				end
+
+				read_sub_data(hash_len, data)
+			else
+				say "I don't know how to handle this!"
+				say line.inspect
+			end
+		end
+	end
+
+	def read_add_data(hash_len, data)
+		read_data(hash_len, data, false)
+	end
+
+	def read_sub_data(hash_len, data)
+		read_data(hash_len, data, true)
+	end
+
+	def read_data(hash_len, data, sub)
+		data = StringIO.new(data)
+		while(hostkey = data.read(8))
+			count = data.read(2).hex # or .to_i(16)
+			if(sub)
+				addchunknum = data.read(8))
+			end
+			count.times do
+				prefix = data.read(hash_len * 2)
+				# push prefix
+			end
 		end
 	end
 
