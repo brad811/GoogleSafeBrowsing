@@ -79,9 +79,11 @@ class GoogleSafeBrowsing
 				redirects[cur_list].push(data)
 				say("Redirect: #{data}")
 			elsif(type == 'ad')
+				chunks = expand_ranges(data)
 				# TODO: delete chunks for current list
 				say("Delete chunks: #{data}")
 			elsif(type == 'sd')
+				chunks = expand_ranges(data)
 				# TODO: delete chunks for current list
 				say("Don't report chunks: #{data}")
 			else
@@ -160,6 +162,26 @@ class GoogleSafeBrowsing
 		end
 
 		return prefix_list
+	end
+
+	# transforms "1-2,4-5,7" into [1,2,4,5,7]
+	def expand_ranges(ranges)
+		result = []
+		ranges = ranges.split(',')
+		ranges.each do |range|
+			if(range.include? '-')
+				range = range.split('-')
+				a = range[0].to_i
+				b = range[1].to_i
+				[a..b].each do |i|
+					result.push(i)
+				end
+			else
+				result.push(range)
+			end
+		end
+
+		return result
 	end
 
 	# makes a request to the google safe browsing api v2
