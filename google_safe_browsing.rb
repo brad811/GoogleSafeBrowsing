@@ -9,6 +9,7 @@ class GoogleSafeBrowsing
 	$appver = '0.1'
 	$pver = '2.2'
 
+	# the lists we care about
 	$lists = ["goog-malware-shavar", "googpub-phish-shavar"]
 
 	$debug = true
@@ -119,11 +120,15 @@ class GoogleSafeBrowsing
 			if(type == 'a')
 				if(chunk_len == 0)
 				end
+				# TODO: store the chunk number in the add list
+				prefix_list = read_add_data(hash_len, data)
+				# TODO: add all these prefixes
 			elsif(type == 's')
 				if(chunk_len == 0)
 				end
-
-				read_sub_data(hash_len, data)
+				# TODO: store the chunk number in the add list
+				prefix_list = read_sub_data(hash_len, data)
+				# TODO: delete all these prefixes
 			else
 				say "I don't know how to handle this!"
 				say line.inspect
@@ -132,14 +137,16 @@ class GoogleSafeBrowsing
 	end
 
 	def read_add_data(hash_len, data)
-		read_data(hash_len, data, false)
+		return read_data(hash_len, data, false)
 	end
 
 	def read_sub_data(hash_len, data)
-		read_data(hash_len, data, true)
+		return read_data(hash_len, data, true)
 	end
 
 	def read_data(hash_len, data, sub)
+		prefix_list = []
+
 		data = StringIO.new(data)
 		while(hostkey = data.read(8))
 			count = data.read(2).hex # or .to_i(16)
@@ -148,9 +155,11 @@ class GoogleSafeBrowsing
 			end
 			count.times do
 				prefix = data.read(hash_len * 2)
-				# push prefix
+				prefix_list.push(prefix)
 			end
 		end
+
+		return prefix_list
 	end
 
 	# makes a request to the google safe browsing api v2
