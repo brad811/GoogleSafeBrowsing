@@ -25,6 +25,14 @@ class GoogleSafeBrowsing
 
 	def update()
 		say('Updating...')
+
+		# checking if we need to wait longer before updating
+		delay = $redis.get("delay")
+		if(delay != '' && delay != nil)
+			say("Error: must wait #{Time.now.to_i - delay.to_i} more seconds before updating! (#{delay})")
+			return
+		end
+
 		# check what lists we have access to
 		available_lists = get_lists()
 		say("Available lists: #{available_lists.inspect}")
@@ -47,7 +55,23 @@ class GoogleSafeBrowsing
 		request_body = ''
 		lists.each do |list|
 			request_body += "#{list};"
-			# TODO: then append all a and s chunks we have
+
+			# append a:1,2,3,4,5,8
+			add = get_add_chunks().join(',')
+			if(add != '' && add != nil)
+				request_body += "a:#{add}"
+			end
+
+			# append [:]s:6,7,9,11
+			sub = get_sub_chunks().join(',')
+			if(sub != '' && sub != nil)
+				if(add != '' && add != nil)
+					request_body += ":"
+				end
+
+				request_body += "s:#{sub}"
+			end
+
 			request_body += "\n"
 		end
 
@@ -68,7 +92,7 @@ class GoogleSafeBrowsing
 				# set the next allowed time to poll
 				delay = Time.now + data.to_i
 				say("Time until next request: #{data}")
-				# TODO: store in redis
+				$redis.setex("delay", data.to_i, delay)
 			elsif(type == 'i')
 				# set the current list
 				cur_list = data
@@ -76,16 +100,16 @@ class GoogleSafeBrowsing
 				say("Current list: #{cur_list}")
 			elsif(type == 'u')
 				# store the redirect
-				redirects[cur_list].push(data)
 				say("Redirect: #{data}")
+				redirects[cur_list].push(data)
 			elsif(type == 'ad')
-				chunks = expand_ranges(data)
-				# TODO: delete chunks for current list
 				say("Delete chunks: #{data}")
-			elsif(type == 'sd')
 				chunks = expand_ranges(data)
-				# TODO: delete chunks for current list
+				delete_add_chunks(cur_list, chunks)
+			elsif(type == 'sd')
 				say("Don't report chunks: #{data}")
+				chunks = expand_ranges(data)
+				delete_sub_chunks(cur_list, chunks)
 			else
 				say("I don't know how to handle this!")
 				say(line.inspect)
@@ -99,6 +123,38 @@ class GoogleSafeBrowsing
 				handle_redirect(list, url)
 			end
 		end
+	end
+
+	def delete_add_chunks(list, chunks)
+		delete_chunks(list, 'add', chunks)
+	end
+
+	def delete_sub_chunks(list, chunks)
+		delete_chunks(list, 'sub', chunks)
+	end
+
+	def delete_chunks(list, type, chunks)
+		chunks.each do |chunk|
+			if(type == 'add')
+				# delete the list of prefixes
+				$redis.del("#{list}:chunk_#{chunk}")
+			end
+
+			# delete from our chunk list
+			$redis.srem("#{list}:#{type}_chunks", chunk)
+		end
+	end
+
+	def get_chunks(type)
+		return $redis.smembers("#{type}_chunks", 0, -1)
+	end
+
+	def get_add_chunks()
+		return get_chunks("add")
+	end
+
+	def get_sub_chunks()
+		return get_chunks("sub")
 	end
 
 	def handle_redirect(list, url)
@@ -121,21 +177,53 @@ class GoogleSafeBrowsing
 
 			if(type == 'a')
 				if(chunk_len == 0)
+					# TODO: something?
 				end
-				# TODO: store the chunk number in the add list
+
+				# store the chunk number in the add list
+				store_add_chunk(list, chunk_num)
+
 				prefix_list = read_add_data(hash_len, data)
-				# TODO: add all these prefixes
+
+				# add all these prefixes
+				add_prefixes(list, chunk_num, prefix_list)
 			elsif(type == 's')
 				if(chunk_len == 0)
+					# TODO: something?
 				end
-				# TODO: store the chunk number in the add list
+
+				# store the chunk number in the sub list
+				store_sub_chunk(list, chunk_num)
+
 				prefix_list = read_sub_data(hash_len, data)
-				# TODO: delete all these prefixes
+
+				# delete all these prefixes
+				sub_prefixes(list, chunk_num, prefix_list)
 			else
 				say "I don't know how to handle this!"
 				say line.inspect
 			end
 		end
+	end
+
+	def add_prefixes(list, chunk, prefixes)
+		$redis.sadd("#{list}:chunk_#{chunk}", prefixes)
+	end
+
+	def sub_prefixes(list, chunk, prefixes)
+		$redis.srem("#{list}:chunk_#{chunk}", prefixes)
+	end
+
+	def store_add_chunk(list, chunk)
+		store_chunk(list, 'add', chunk)
+	end
+
+	def store_sub_chunk(list, chunk)
+		store_chunk(list, 'sub', chunk)
+	end
+
+	def store_chunk(list, type, chunk)
+		$redis.sadd("#{list}:#{type}_chunks", chunk)
 	end
 
 	def read_add_data(hash_len, data)
