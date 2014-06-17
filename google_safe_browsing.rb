@@ -120,7 +120,11 @@ class GoogleSafeBrowsing
 		# handle the redirects
 		say('Handling redirects...')
 		redirects.each do |list, urls|
+			say("Handling #{list} redirects...")
+			i = 0
 			urls.each do |url|
+				i += 1
+				say("Handling #{list} redirect #{i} of #{urls.length}...")
 				handle_redirect(list, url)
 			end
 		end
@@ -149,19 +153,12 @@ class GoogleSafeBrowsing
 	def get_chunks(list, type)
 		chunks = $redis.smembers("#{list}:#{type}_chunks")
 
-		chunks = chunks.compact.uniq.sort
-		ranges = []
-
-		if(!chunks.empty?)
-			left, right = chunks.first, nil
-			chunks.each do |obj|
-				if right && obj != right.succ
-					ranges << Range.new(left,right)
-					left = obj
-				end
-				right = obj
+		ranges = chunks.collect{|s| s.to_i}.sort.uniq.inject([]) do |spans, n|
+			if spans.empty? || spans.last.last != n - 1
+				spans + [n..n]
+			else
+				spans[0..-2] + [spans.last.first..n]
 			end
-			ranges << Range.new(left, right)
 		end
 
 		return ranges.join(',').gsub("..","-")
@@ -180,7 +177,7 @@ class GoogleSafeBrowsing
 		response = StringIO.new(response)
 
 		while(line = response.gets)
-			puts line
+			#puts line
 
 			line = line.split(':')
 			type = line[0]
@@ -189,9 +186,9 @@ class GoogleSafeBrowsing
 			chunk_len = line[3].to_i
 
 			data = response.read(chunk_len)
-			puts "data length: #{data.length}, data: ========================================"
-			puts data.unpack("H*")
-			puts "================================================================================"
+			#puts "data length: #{data.length}, data: ========================================"
+			#puts data.unpack("H*")
+			#puts "================================================================================"
 
 			if(type == 'a')
 				if(chunk_len == 0)
@@ -264,12 +261,12 @@ class GoogleSafeBrowsing
 		data = StringIO.new(data)
 		while(hostkey = data.read(4))
 			hostkey = hostkey.unpack("H*")[0]
-			puts "hostkey: #{hostkey}"
+			#puts "hostkey: #{hostkey}"
 			count = data.read(1).unpack("H*")[0].hex # or .to_i(16)
-			puts "count: #{count}"
+			#puts "count: #{count}"
 			if(sub)
 				addchunknum = data.read(4).unpack("H*")[0]
-				puts "addchunknum: #{addchunknum}"
+				#puts "addchunknum: #{addchunknum}"
 			end
 
 			# If count > 1, it will be prefix-chunk until the last one, which will be just prefix
@@ -278,7 +275,7 @@ class GoogleSafeBrowsing
 				entry['host'] = hostkey
 
 				path_prefix = data.read(hash_len).unpack("H*")[0]
-				puts "path_prefix: #{path_prefix}"
+				#puts "path_prefix: #{path_prefix}"
 				entry['path'] = path_prefix
 
 				if(sub && count > 1 && i != count-1)
@@ -286,13 +283,13 @@ class GoogleSafeBrowsing
 				else
 					entry['chunk'] = addchunknum
 				end
-				puts "chunk: #{entry['chunk']}"
+				#puts "chunk: #{entry['chunk']}"
 
 				entry_list.push(entry)
 			end
 		end
 
-		puts "----------"
+		#puts "----------"
 		return entry_list
 	end
 
