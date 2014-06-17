@@ -2,6 +2,8 @@ require 'net/http'
 require 'redis'
 require 'uri'
 
+require_relative './canonicalize'
+
 class GoogleSafeBrowsing
 	$api_key = ''
 	$redis = nil
