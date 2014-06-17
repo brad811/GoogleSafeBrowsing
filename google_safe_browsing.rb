@@ -29,7 +29,7 @@ class GoogleSafeBrowsing
 		# checking if we need to wait longer before updating
 		delay = $redis.get("delay")
 		if(delay != '' && delay != nil)
-			say("Error: must wait #{Time.now.to_i - delay.to_i} more seconds before updating! (#{delay})")
+			say("Error: must wait #{delay.to_i - Time.now.to_i} more seconds before updating! (#{delay})")
 			return
 		end
 
@@ -57,13 +57,13 @@ class GoogleSafeBrowsing
 			request_body += "#{list};"
 
 			# append a:1,2,3,4,5,8
-			add = get_add_chunks().join(',')
+			add = get_add_chunks(list)
 			if(add != '' && add != nil)
 				request_body += "a:#{add}"
 			end
 
 			# append [:]s:6,7,9,11
-			sub = get_sub_chunks().join(',')
+			sub = get_sub_chunks(list)
 			if(sub != '' && sub != nil)
 				if(add != '' && add != nil)
 					request_body += ":"
@@ -76,6 +76,7 @@ class GoogleSafeBrowsing
 		end
 
 		say("Request body: #{request_body.inspect}")
+
 		response = api_request("downloads", request_body)
 		response = response.split("\n")
 
@@ -92,7 +93,7 @@ class GoogleSafeBrowsing
 				# set the next allowed time to poll
 				delay = Time.now + data.to_i
 				say("Time until next request: #{data}")
-				$redis.setex("delay", data.to_i, delay)
+				$redis.setex("delay", data.to_i, delay.to_i)
 			elsif(type == 'i')
 				# set the current list
 				cur_list = data
@@ -145,16 +146,33 @@ class GoogleSafeBrowsing
 		end
 	end
 
-	def get_chunks(type)
-		return $redis.smembers("#{type}_chunks", 0, -1)
+	def get_chunks(list, type)
+		chunks = $redis.smembers("#{list}:#{type}_chunks")
+
+		chunks = chunks.compact.uniq.sort
+		ranges = []
+
+		if(!chunks.empty?)
+			left, right = chunks.first, nil
+			chunks.each do |obj|
+				if right && obj != right.succ
+					ranges << Range.new(left,right)
+					left = obj
+				end
+				right = obj
+			end
+			ranges << Range.new(left, right)
+		end
+
+		return ranges.join(',').gsub("..","-")
 	end
 
-	def get_add_chunks()
-		return get_chunks("add")
+	def get_add_chunks(list)
+		return get_chunks(list, "add")
 	end
 
-	def get_sub_chunks()
-		return get_chunks("sub")
+	def get_sub_chunks(list)
+		return get_chunks(list, "sub")
 	end
 
 	def handle_redirect(list, url)
@@ -183,10 +201,10 @@ class GoogleSafeBrowsing
 				# store the chunk number in the add list
 				store_add_chunk(list, chunk_num)
 
-				prefix_list = read_add_data(hash_len, data)
+				entry_list = read_add_data(hash_len, data)
 
 				# add all these prefixes
-				add_prefixes(list, chunk_num, prefix_list)
+				add_entries(list, chunk_num, entry_list)
 			elsif(type == 's')
 				if(chunk_len == 0)
 					# TODO: something?
@@ -195,10 +213,10 @@ class GoogleSafeBrowsing
 				# store the chunk number in the sub list
 				store_sub_chunk(list, chunk_num)
 
-				prefix_list = read_sub_data(hash_len, data)
+				entry_list = read_sub_data(hash_len, data)
 
 				# delete all these prefixes
-				sub_prefixes(list, chunk_num, prefix_list)
+				sub_entries(list, chunk_num, entry_list)
 			else
 				say "I don't know how to handle this!"
 				say line.inspect
@@ -206,12 +224,16 @@ class GoogleSafeBrowsing
 		end
 	end
 
-	def add_prefixes(list, chunk, prefixes)
-		$redis.sadd("#{list}:chunk_#{chunk}", prefixes)
+	def add_entries(list, chunk, entries)
+		entries.each do |entry|
+			$redis.sadd("#{list}:#{chunk}:#{entry['host']}", entry['path'])
+		end
 	end
 
-	def sub_prefixes(list, chunk, prefixes)
-		$redis.srem("#{list}:chunk_#{chunk}", prefixes)
+	def sub_entries(list, chunk, entries)
+		entries.each do |entry|
+			$redis.srem("#{list}:#{entry['chunk']}:#{entry['host']}", entry['path'])
+		end
 	end
 
 	def store_add_chunk(list, chunk)
@@ -235,21 +257,43 @@ class GoogleSafeBrowsing
 	end
 
 	def read_data(hash_len, data, sub)
-		prefix_list = []
+		# returns an array of hashes of the form: { host, path, chunk }
+		entry_list = []
+		addchunknum = ""
 
 		data = StringIO.new(data)
-		while(hostkey = data.read(8))
-			count = data.read(2).hex # or .to_i(16)
+		while(hostkey = data.read(4))
+			hostkey = hostkey.unpack("H*")[0]
+			puts "hostkey: #{hostkey}"
+			count = data.read(1).unpack("H*")[0].hex # or .to_i(16)
+			puts "count: #{count}"
 			if(sub)
-				addchunknum = data.read(8))
+				addchunknum = data.read(4).unpack("H*")[0]
+				puts "addchunknum: #{addchunknum}"
 			end
-			count.times do
-				prefix = data.read(hash_len * 2)
-				prefix_list.push(prefix)
+
+			# If count > 1, it will be prefix-chunk until the last one, which will be just prefix
+			count.times do |i|
+				entry = {}
+				entry['host'] = hostkey
+
+				path_prefix = data.read(hash_len).unpack("H*")[0]
+				puts "path_prefix: #{path_prefix}"
+				entry['path'] = path_prefix
+
+				if(sub && count > 1 && i != count-1)
+					entry['chunk'] = data.read(4).unpack("H*")[0]
+				else
+					entry['chunk'] = addchunknum
+				end
+				puts "chunk: #{entry['chunk']}"
+
+				entry_list.push(entry)
 			end
 		end
 
-		return prefix_list
+		puts "----------"
+		return entry_list
 	end
 
 	# transforms "1-2,4-5,7" into [1,2,4,5,7]
