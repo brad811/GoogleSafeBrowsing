@@ -49,16 +49,40 @@ class GoogleSafeBrowsing
 	end
 
 	def lookup(url)
+		say("Checking url: #{url}")
 		url, parts = Canonicalize::canonicalize(url)
-		urls = get_possible_urls(parts)
+		hosts, paths = get_possible_hosts_paths(parts)
 
-		urls.each do |url|
-			h = Digest::SHA2.new << url
-			puts "#{url} : #{h}"
+		# get all possible host+path combination hash prefixes
+		hostpaths = get_hash_prefixes(hosts.product(paths).collect{|a, b| a + b})
+
+		# add a trailing slash to all hosts, and get their hash prefixes
+		hosts = get_hash_prefixes(hosts.collect{|a| a + '/'})
+
+		$lists.each do |list|
+			hosts.each do |host|
+				key = $redis.keys("#{list}:*#{host}*")[0]
+				if(key != nil)
+					suffixes = $redis.smembers(key)
+					if(suffixes.length == 0 || suffixes & hostpaths != [])
+						say("URL matches a list: #{list}")
+						return list
+					end
+				end
+			end
 		end
 	end
 
-	def get_possible_urls(parts)
+	def get_hash_prefixes(items)
+		prefixes = []
+		items.each do |item|
+			prefixes.push((Digest::SHA2.new << item).to_s[0..7])
+		end
+
+		return prefixes
+	end
+
+	def get_possible_hosts_paths(parts)
 		case parts['host']
 		when Resolv::IPv4::Regex
 			ip = true
@@ -104,14 +128,14 @@ class GoogleSafeBrowsing
 			possible_paths.push(possible_path)
 		end
 
-		possible_urls = []
-		possible_hosts.each do |possible_host|
-			possible_paths.each do |possible_path|
-				possible_urls.push(possible_host + possible_path)
-			end
-		end
+		#possible_urls = []
+		#possible_hosts.each do |possible_host|
+		#	possible_paths.each do |possible_path|
+		#		possible_urls.push(possible_host + possible_path)
+		#	end
+		#end
 
-		return possible_urls
+		return possible_hosts, possible_paths
 	end
 
 	# returns available lists as an array
