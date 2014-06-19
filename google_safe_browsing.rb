@@ -65,12 +65,15 @@ class GoogleSafeBrowsing
 				if(is_member)
 					suffixes = $redis.smembers("#{list}:#{host}")
 					if(suffixes.length == 0 || suffixes & hostpaths != [])
-						say("URL matches a list: #{list}")
+						say("URL matches a list: #{list} (#{url})")
 						return list
 					end
 				end
 			end
 		end
+
+		say("URL does not match any lists (#{url})")
+		return ''
 	end
 
 	def get_hash_prefixes(items)
