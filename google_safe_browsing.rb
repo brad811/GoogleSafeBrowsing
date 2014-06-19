@@ -65,7 +65,7 @@ class GoogleSafeBrowsing
 			hosts.each do |host|
 				is_member = $redis.sismember("#{list}:hosts", host)
 				if(is_member)
-					suffixes = $redis.smembers("#{list}:#{host}")
+					suffixes = $redis.smembers("#{list}:host_#{host}")
 					if(suffixes.length == 0 || suffixes & hostpaths != [])
 						say("URL matches a list: #{list} (#{url})")
 						return list
@@ -238,14 +238,14 @@ class GoogleSafeBrowsing
 		chunks.each do |chunk|
 			if(type == 'add')
 				# delete each of the prefixes
-				hosts = $redis.smembers("#{list}:#{chunk}")
+				hosts = $redis.smembers("#{list}:chunk_#{chunk}")
 				hosts.each do |hosts|
-					$redis.del("#{list}:#{host}")
+					$redis.del("#{list}:host_#{host}")
 					$redis.srem("#{list}:hosts", host)
 				end
 
 				# delete the list of prefixes
-				$redis.del("#{list}:#{chunk}")
+				$redis.del("#{list}:chunk_#{chunk}")
 			end
 
 			# delete from our chunk list
@@ -315,16 +315,16 @@ class GoogleSafeBrowsing
 
 	def add_entries(list, chunk, entries)
 		entries.each do |entry|
-			$redis.sadd("#{list}:#{chunk}", entry['host'])
-			$redis.sadd("#{list}:#{entry['host']}", entry['path'])
+			$redis.sadd("#{list}:chunk_#{chunk}", entry['host'])
+			$redis.sadd("#{list}:host_#{entry['host']}", entry['path'])
 			$redis.sadd("#{list}:hosts", entry['host'])
 		end
 	end
 
 	def sub_entries(list, chunk, entries)
 		entries.each do |entry|
-			$redis.srem("#{list}:#{chunk}", entry['host'])
-			$redis.srem("#{list}:#{entry['host']}", entry['path'])
+			$redis.srem("#{list}:chunk_#{chunk}", entry['host'])
+			$redis.srem("#{list}:host_#{entry['host']}", entry['path'])
 			$redis.srem("#{list}:hosts", entry['host'])
 		end
 	end
