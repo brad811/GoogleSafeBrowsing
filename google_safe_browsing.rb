@@ -21,13 +21,14 @@ class GoogleSafeBrowsing
 
 	@delay = Time.now
 
-	# set up the object
+	# set the api key and redis object
 	def initialize(api_key, redis = nil)
 		say('Initializing...')
 		$api_key = api_key
 		$redis = redis || Redis.new
 	end
 
+	# request data from google's servers
 	def update()
 		say('Updating...')
 
@@ -48,6 +49,7 @@ class GoogleSafeBrowsing
 		get_data(lists)
 	end
 
+	# perform a lookup on a url
 	def lookup(url)
 		say("Checking url: #{url}")
 		url, parts = Canonicalize::canonicalize(url)
@@ -76,6 +78,7 @@ class GoogleSafeBrowsing
 		return ''
 	end
 
+	# convert an array of strings into an array of 32 bit hash prefixes
 	def get_hash_prefixes(items)
 		prefixes = []
 		items.each do |item|
@@ -85,6 +88,7 @@ class GoogleSafeBrowsing
 		return prefixes
 	end
 
+	# expand a url into its possible host-path combinations according to the Google API
 	def get_possible_hosts_paths(parts)
 		case parts['host']
 		when Resolv::IPv4::Regex
@@ -131,13 +135,6 @@ class GoogleSafeBrowsing
 			possible_paths.push(possible_path)
 		end
 
-		#possible_urls = []
-		#possible_hosts.each do |possible_host|
-		#	possible_paths.each do |possible_path|
-		#		possible_urls.push(possible_host + possible_path)
-		#	end
-		#end
-
 		return possible_hosts, possible_paths
 	end
 
@@ -147,6 +144,7 @@ class GoogleSafeBrowsing
 		return lists.split("\n")
 	end
 
+	# performs a request for data from Google, and parses the response
 	def get_data(lists)
 		say('Getting data...')
 		# build the request
@@ -255,20 +253,6 @@ class GoogleSafeBrowsing
 		end
 	end
 
-	def get_chunks(list, type)
-		chunks = $redis.smembers("#{list}:#{type}_chunks")
-
-		ranges = chunks.collect{|s| s.to_i}.sort.uniq.inject([]) do |spans, n|
-			if spans.empty? || spans.last.last != n - 1
-				spans + [n..n]
-			else
-				spans[0..-2] + [spans.last.first..n]
-			end
-		end
-
-		return ranges.join(',').gsub("..","-")
-	end
-
 	def get_add_chunks(list)
 		return get_chunks(list, "add")
 	end
@@ -277,6 +261,12 @@ class GoogleSafeBrowsing
 		return get_chunks(list, "sub")
 	end
 
+	def get_chunks(list, type)
+		chunks = $redis.smembers("#{list}:#{type}_chunks")
+		return convert_list_to_ranges(chunks)
+	end
+
+	# reads and parses the encoded data from a redirect url
 	def handle_redirect(list, url)
 		response = http_post_request("http://#{url}")
 		response = StringIO.new(response)
@@ -291,13 +281,10 @@ class GoogleSafeBrowsing
 			chunk_len = line[3].to_i
 
 			data = response.read(chunk_len)
-			#puts "data length: #{data.length}, data: ========================================"
-			#puts data.unpack("H*")
-			#puts "================================================================================"
 
 			if(type == 'a')
 				if(chunk_len == 0)
-					# TODO: something?
+					# TODO
 				end
 
 				# store the chunk number in the add list
@@ -309,7 +296,7 @@ class GoogleSafeBrowsing
 				add_entries(list, chunk_num, entry_list)
 			elsif(type == 's')
 				if(chunk_len == 0)
-					# TODO: something?
+					# TODO
 				end
 
 				# store the chunk number in the sub list
@@ -362,6 +349,7 @@ class GoogleSafeBrowsing
 		return read_data(hash_len, data, true)
 	end
 
+	# reads a chunk of encoded data and converts it into a list of entries
 	def read_data(hash_len, data, sub)
 		# returns an array of hashes of the form: { host, path, chunk }
 		entry_list = []
@@ -402,7 +390,7 @@ class GoogleSafeBrowsing
 		return entry_list
 	end
 
-	# transforms "1-2,4-5,7" into [1,2,4,5,7]
+	# transforms "1-2,4-6,8" into [1,2,4,5,6,8]
 	def expand_ranges(ranges)
 		result = []
 		ranges = ranges.split(',')
@@ -420,6 +408,19 @@ class GoogleSafeBrowsing
 		end
 
 		return result
+	end
+
+	# transforms [1,2,4,5,6,8] into "1-2,4-6,8"
+	def convert_list_to_ranges(list)
+		ranges = list.collect{|s| s.to_i}.sort.uniq.inject([]) do |spans, n|
+			if spans.empty? || spans.last.last != n - 1
+				spans + [n..n]
+			else
+				spans[0..-2] + [spans.last.first..n]
+			end
+		end
+
+		return ranges.join(',').gsub("..","-")
 	end
 
 	# makes a request to the google safe browsing api v2
