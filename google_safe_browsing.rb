@@ -143,8 +143,14 @@ class GoogleSafeBrowsing
 	def delete_chunks(list, type, chunks)
 		chunks.each do |chunk|
 			if(type == 'add')
+				# delete each of the prefixes
+				keys = $redis.smembers("#{list}:#{chunk}")
+				keys.each do |key|
+					$redis.del("#{list}:#{chunk}:#{key}")
+				end
+
 				# delete the list of prefixes
-				$redis.del("#{list}:chunk_#{chunk}")
+				$redis.del("#{list}:#{chunk}")
 			end
 
 			# delete from our chunk list
@@ -225,12 +231,14 @@ class GoogleSafeBrowsing
 
 	def add_entries(list, chunk, entries)
 		entries.each do |entry|
+			$redis.sadd("#{list}:#{chunk}", entry['host'])
 			$redis.sadd("#{list}:#{chunk}:#{entry['host']}", entry['path'])
 		end
 	end
 
 	def sub_entries(list, chunk, entries)
 		entries.each do |entry|
+			$redis.srem("#{list}:#{entry['chunk']}", entry['host'])
 			$redis.srem("#{list}:#{entry['chunk']}:#{entry['host']}", entry['path'])
 		end
 	end
