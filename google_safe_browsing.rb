@@ -1,5 +1,8 @@
+require 'digest/sha2'
+require 'ip'
 require 'net/http'
 require 'redis'
+require 'resolv'
 require 'uri'
 
 require_relative './canonicalize'
@@ -43,6 +46,70 @@ class GoogleSafeBrowsing
 		lists = (available_lists & $lists)
 
 		get_data(lists)
+	end
+
+	def lookup(url)
+		url, parts = Canonicalize::canonicalize(url)
+		urls = get_possible_urls(parts)
+
+		urls.each do |url|
+			h = Digest::SHA2.new << url
+			puts h
+		end
+	end
+
+	def get_possible_urls(parts)
+		case parts['host']
+		when Resolv::IPv4::Regex
+			ip = true
+		when Resolv::IPv6::Regex
+			ip = true
+		else
+			ip = false
+		end
+
+		# For the hostname, the client will try at most 5 different strings. They are:
+		# - the exact hostname in the url
+		# - up to 4 hostnames formed by starting with the last 5 components and successively removing the leading component.
+		#   The top-level domain can be skipped. These additional hostnames should not be checked if the host is an IP address.
+		possible_hosts = []
+
+		if(!ip)
+			host = parts['host'].split('.')
+			[host.length - 2, 4].min.times do |i|
+				possible_hosts.push(host[host.length-2-i..-1].join('.'))
+			end
+		end
+		possible_hosts.push(parts['host'])
+		possible_hosts.reverse!
+
+		# For the path, the client will also try at most 6 different strings. They are:
+		# - the exact path of the url, including query parameters
+		# - the exact path of the url, without query parameters
+		# - the 4 paths formed by starting at the root (/) and successively appending path components, including a trailing slash.
+		possible_paths = []
+
+		if(parts['query'] != '')
+			possible_paths.push(parts['path'] + parts['query'])
+		end
+		possible_paths.push(parts['path'])
+
+		path = parts['path'].split('/')
+		[path.length - 1, 5].min.times do |i|
+			possible_path = path[0..i].join('/')
+			if(possible_path == '' || i < path.length - 1)
+				possible_path += '/'
+			end
+
+			possible_paths.push(possible_path)
+		end
+
+		possible_urls = []
+		possible_hosts.each do |possible_host|
+			possible_paths.each do |possible_path|
+				possible_urls.push(possible_host + possible_path)
+			end
+		end
 	end
 
 	# returns available lists as an array
