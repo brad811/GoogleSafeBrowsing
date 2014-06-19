@@ -10,6 +10,7 @@ require_relative './canonicalize'
 class GoogleSafeBrowsing
 	$api_key = ''
 	$redis = nil
+	$debug = false
 
 	$appver = '0.1'
 	$pver = '2.2'
@@ -17,15 +18,13 @@ class GoogleSafeBrowsing
 	# the lists we care about
 	$lists = ["goog-malware-shavar", "googpub-phish-shavar"]
 
-	$debug = true
-
 	@delay = Time.now
 
 	# set the api key and redis object
-	def initialize(api_key, redis = nil)
-		say('Initializing...')
+	def initialize(api_key, options = {})
 		$api_key = api_key
-		$redis = redis || Redis.new
+		$redis = options[:redis] || Redis.new
+		$debug = options[:debug] || false
 	end
 
 	# request data from google's servers
@@ -171,8 +170,6 @@ class GoogleSafeBrowsing
 			request_body += "\n"
 		end
 
-		say("Request body: #{request_body.inspect}")
-
 		response = api_request("downloads", request_body)
 		response = response.split("\n")
 
@@ -272,8 +269,6 @@ class GoogleSafeBrowsing
 		response = StringIO.new(response)
 
 		while(line = response.gets)
-			#puts line
-
 			line = line.split(':')
 			type = line[0]
 			chunk_num = line[1].to_i
@@ -358,12 +353,9 @@ class GoogleSafeBrowsing
 		data = StringIO.new(data)
 		while(hostkey = data.read(4))
 			hostkey = hostkey.unpack("H*")[0]
-			#puts "hostkey: #{hostkey}"
 			count = data.read(1).unpack("H*")[0].hex # or .to_i(16)
-			#puts "count: #{count}"
 			if(sub)
 				addchunknum = data.read(4).unpack("H*")[0]
-				#puts "addchunknum: #{addchunknum}"
 			end
 
 			# If count > 1, it will be prefix-chunk until the last one, which will be just prefix
@@ -372,7 +364,6 @@ class GoogleSafeBrowsing
 				entry['host'] = hostkey
 
 				path_prefix = data.read(hash_len).unpack("H*")[0]
-				#puts "path_prefix: #{path_prefix}"
 				entry['path'] = path_prefix
 
 				if(sub && count > 1 && i != count-1)
@@ -380,13 +371,11 @@ class GoogleSafeBrowsing
 				else
 					entry['chunk'] = addchunknum
 				end
-				#puts "chunk: #{entry['chunk']}"
 
 				entry_list.push(entry)
 			end
 		end
 
-		#puts "----------"
 		return entry_list
 	end
 
