@@ -54,7 +54,7 @@ class GoogleSafeBrowsing
 
 		urls.each do |url|
 			h = Digest::SHA2.new << url
-			puts h
+			puts "#{url} : #{h}"
 		end
 	end
 
@@ -110,6 +110,8 @@ class GoogleSafeBrowsing
 				possible_urls.push(possible_host + possible_path)
 			end
 		end
+
+		return possible_urls
 	end
 
 	# returns available lists as an array
