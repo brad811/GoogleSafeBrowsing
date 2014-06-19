@@ -78,8 +78,22 @@ class Canonicalize
 		path = URI.escape(path).gsub('%5E', '^')
 		query = URI.escape(query).gsub('%5E', '^')
 
+		host = remove_user_password_and_port(host)
+
 		url = protocol + host + path + query
 
 		return url, { 'protocol' => protocol, 'host' => host, 'path' => path, 'query' => query }
+	end
+
+	def self.remove_user_password_and_port(host)
+		if(host.include?('@'))
+			host = host.split('@')[1]
+		end
+
+		if(host.include?(':'))
+			host = host.split(':')[0]
+		end
+
+		return host
 	end
 end
