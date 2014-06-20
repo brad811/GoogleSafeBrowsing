@@ -23,10 +23,13 @@ checker = GoogleSafeBrowsing.new(api_key, :redis => Redis.new, :debug => false)
 # This will update your database
 checker.update()
 
-# This url should report that it is on the malware list
+# The lookup method will return the list name if the given url appears on a list,
+# or an empty string if the url doesn not appear on any lists
+
+# Return value: 'goog-malware-shavar'
 checker.lookup('http://malware.testing.google.test/testing/malware/')
 
-# This url should not match any lists
+# Return value: ''
 checker.lookup('http://www.google.com/')
 
 ```
