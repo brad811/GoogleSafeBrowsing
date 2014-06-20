@@ -1,5 +1,4 @@
 require 'digest/sha2'
-require 'ip'
 require 'net/http'
 require 'redis'
 require 'resolv'
