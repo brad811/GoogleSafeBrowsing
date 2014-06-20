@@ -50,7 +50,7 @@ class GoogleSafeBrowsing
 	# perform a lookup on a url
 	def lookup(url)
 		say("Checking url: #{url}")
-		url, parts = Canonicalize::canonicalize(url)
+		url, parts = canonicalize(url)
 		hosts, paths = get_possible_hosts_paths(parts)
 
 		# get all possible host+path combination hash prefixes
@@ -74,6 +74,11 @@ class GoogleSafeBrowsing
 
 		say("URL does not match any lists (#{url})")
 		return ''
+	end
+
+	# returns the canonicalized url, and a hash of its parts
+	def canonicalize(url)
+		return Canonicalize::canonicalize(url)
 	end
 
 	# convert an array of strings into an array of 32 bit hash prefixes

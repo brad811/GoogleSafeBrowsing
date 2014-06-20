@@ -32,4 +32,11 @@ checker.lookup('http://malware.testing.google.test/testing/malware/')
 # Return value: ''
 checker.lookup('http://www.google.com/')
 
+# The 'canonicalize' method will return the canonicalized version of the url,
+# along with a hash of its components
+# Return values:
+# 'http://www.google.com/something.html?param=1'
+# {"protocol"=>"http://", "host"=>"www.google.com", "path"=>"/something.html", "query"=>"?param=1"}
+checker.canonicalize(' http://www..google.com/..///something.html?param=1    ')
+
 ```
