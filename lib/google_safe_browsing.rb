@@ -54,21 +54,29 @@ class GoogleSafeBrowsing
 		hosts, paths = get_possible_hosts_paths(parts)
 
 		# get all possible host+path combination hash prefixes
-		hostpaths = get_hash_prefixes(hosts.product(paths).collect{|a, b| a + b})
+		full_urls = hosts.product(paths).collect{|a, b| a + b}
+		prefixes = get_hash_prefixes(full_urls)
+		full_url_hashes = get_hashes(full_urls)
 
 		# add a trailing slash to all hosts, and get their hash prefixes
-		hosts = get_hash_prefixes(hosts.collect{|a| a + '/'})
+		host_hash_prefixes = get_hash_prefixes(hosts.collect{|a| a + '/'})
 
+		host_num = 0
 		$lists.each do |list|
-			hosts.each do |host|
+			host_hash_prefixes.each do |host|
 				is_member = $redis.sismember("#{list}:hosts", host)
 				if(is_member)
 					suffixes = $redis.smembers("#{list}:host_#{host}")
-					if(suffixes.length == 0 || suffixes & hostpaths != [])
-						say("URL matches a list: #{list} (#{url})")
-						return list
+					hits = suffixes & prefixes
+					if(suffixes.length == 0 || hits != [])
+						full_hashes = get_full_hashes(hits)
+						if(full_url_hashes & full_hashes != [])
+							say("URL matches a list: #{list} (#{url})")
+							return list
+						end
 					end
 				end
+				host_num += 1
 			end
 		end
 
@@ -81,6 +89,31 @@ class GoogleSafeBrowsing
 		return Canonicalize::canonicalize(url)
 	end
 
+	def get_full_hashes(prefixes)
+		body = "4:#{prefixes.length*4}\n"
+		prefixes.each do |prefix|
+			body += "#{[prefix].pack('H*')}"
+		end
+
+		response = api_request("gethash", body)
+		if(response == nil)
+			return []
+		end
+
+		response = StringIO.new(response)
+		full_hashes = []
+		while(line = response.gets)
+			line = line.split(':')
+			list = line[0]
+			chunk_num = line[1].to_i
+			chunk_len = line[2].to_i
+			data = response.read(chunk_len)
+			full_hashes.push(data.unpack("H*").join())
+		end
+
+		return full_hashes
+	end
+
 	# convert an array of strings into an array of 32 bit hash prefixes
 	def get_hash_prefixes(items)
 		prefixes = []
@@ -89,6 +122,16 @@ class GoogleSafeBrowsing
 		end
 
 		return prefixes
+	end
+
+	# convert an array of strings into an array of hashes
+	def get_hashes(items)
+		hashes = []
+		items.each do |item|
+			hashes.push((Digest::SHA2.new << item).to_s)
+		end
+
+		return hashes
 	end
 
 	# expand a url into its possible host-path combinations according to the Google API
@@ -174,6 +217,7 @@ class GoogleSafeBrowsing
 			request_body += "\n"
 		end
 
+		say "Request body: #{request_body}"
 		response = api_request("downloads", request_body)
 		response = response.split("\n")
 
@@ -429,8 +473,8 @@ class GoogleSafeBrowsing
 		http = Net::HTTP.new(uri.host, uri.port)
 		request = Net::HTTP::Post.new(uri.request_uri)
 		request.body = body || ''
-		response = http.request(request).body
-		return response
+		response = http.request(request)
+		return response.body
 	end
 
 	def say(msg)
